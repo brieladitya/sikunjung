@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/database/database_helper.dart';
@@ -21,7 +20,6 @@ class AuthService {
   }
 
   Future<void> createDemoAccount() async {
-    if (!kDebugMode) return;
     final db = await DatabaseHelper.instance.database;
     final found = await db.query(
       'users',
@@ -43,7 +41,6 @@ class AuthService {
     });
   }
 
-  // Menggunakan Future<dynamic> agar aman dari parser markdown
   Future<dynamic> login(String username, String password) async {
     final db = await DatabaseHelper.instance.database;
     final rows = await db.query(

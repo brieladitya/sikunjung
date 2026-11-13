@@ -102,7 +102,14 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
   }
 
   Future<void> _simpan() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Periksa kembali input form yang belum memenuhi syarat.'),
+        ),
+      );
+      return;
+    }
 
     setState(() => _loading = true);
     try {
@@ -163,6 +170,7 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
       bottomNavigationBar: const AppNavbar(currentIndex: 1),
       body: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -172,7 +180,7 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Lengkapi data dan lokasi kunjungan.',
+              'Lengkapi data dan lokasi kunjungan sesuai batas minimal karakter.',
               style: TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -181,11 +189,16 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
               maxLength: 100,
               decoration: const InputDecoration(
                 labelText: 'Nama Pelanggan *',
+                hintText: 'Minimal 3 karakter',
                 prefixIcon: Icon(Icons.person_outline),
                 border: OutlineInputBorder(),
               ),
-              validator: (v) =>
-              v == null || v.trim().isEmpty ? 'Nama wajib diisi' : null,
+              validator: (v) {
+                final teks = v?.trim() ?? '';
+                if (teks.isEmpty) return 'Nama pelanggan wajib diisi';
+                if (teks.length < 3) return 'Nama pelanggan minimal 3 karakter';
+                return null;
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -194,23 +207,37 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
               maxLines: 2,
               decoration: const InputDecoration(
                 labelText: 'Alamat Pelanggan *',
+                hintText: 'Minimal 10 karakter',
                 prefixIcon: Icon(Icons.home_outlined),
                 border: OutlineInputBorder(),
               ),
-              validator: (v) =>
-              v == null || v.trim().isEmpty ? 'Alamat wajib diisi' : null,
+              validator: (v) {
+                final teks = v?.trim() ?? '';
+                if (teks.isEmpty) return 'Alamat pelanggan wajib diisi';
+                if (teks.length < 10) {
+                  return 'Alamat pelanggan minimal 10 karakter';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _telepon,
-              maxLength: 20,
+              maxLength: 15,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
-                labelText: 'Nomor Telepon',
+                labelText: 'Nomor Telepon *',
+                hintText: 'Contoh: 081234567890 (minimal 10 digit)',
                 prefixIcon: Icon(Icons.phone_outlined),
                 border: OutlineInputBorder(),
               ),
+              validator: (v) {
+                final teks = v?.trim() ?? '';
+                if (teks.isEmpty) return 'Nomor telepon wajib diisi';
+                if (teks.length < 10) return 'Nomor telepon minimal 10 digit';
+                return null;
+              },
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -236,9 +263,17 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
               maxLines: 3,
               decoration: const InputDecoration(
                 labelText: 'Catatan Kunjungan',
+                hintText: 'Opsional (minimal 5 karakter jika diisi)',
                 prefixIcon: Icon(Icons.notes),
                 border: OutlineInputBorder(),
               ),
+              validator: (v) {
+                final teks = v?.trim() ?? '';
+                if (teks.isNotEmpty && teks.length < 5) {
+                  return 'Catatan kunjungan minimal 5 karakter';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16),
             Container(
