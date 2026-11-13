@@ -16,6 +16,7 @@ class PetaKunjunganPage extends StatefulWidget {
 }
 
 class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
+  final MapController _mapController = MapController();
   List _lokasiTersimpan = [];
   Map<String, Object?>? _terpilih;
   Position? _posisiPetugas;
@@ -26,6 +27,92 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
   void initState() {
     super.initState();
     _muatLokasi();
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  List<LatLng> _kumpulkanSemuaTitik() {
+    final titik = <LatLng>[];
+    if (_posisiPetugas != null) {
+      titik.add(LatLng(_posisiPetugas!.latitude, _posisiPetugas!.longitude));
+    }
+    for (final row in _lokasiTersimpan) {
+      titik.add(
+        LatLng(
+          (row['latitude'] as num).toDouble(),
+          (row['longitude'] as num).toDouble(),
+        ),
+      );
+    }
+    return titik;
+  }
+
+  bool _memilikiBanyakTitikTerpisah(List<LatLng> titik) {
+    if (titik.length < 2) return false;
+    final pertama = titik.first;
+    for (int i = 1; i < titik.length; i++) {
+      final jarak = Geolocator.distanceBetween(
+        pertama.latitude,
+        pertama.longitude,
+        titik[i].latitude,
+        titik[i].longitude,
+      );
+      if (jarak > 25) return true;
+    }
+    return false;
+  }
+
+  void _sesuaikanKameraSemuaPin() {
+    final titik = _kumpulkanSemuaTitik();
+    if (titik.isEmpty) return;
+
+    if (_memilikiBanyakTitikTerpisah(titik)) {
+      final bounds = LatLngBounds.fromPoints(titik);
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.fromLTRB(56, 120, 56, 120),
+          maxZoom: 16,
+        ),
+      );
+    } else {
+      _mapController.move(titik.first, 15);
+    }
+  }
+
+  void _fokusKePosisiSaya() {
+    if (_posisiPetugas == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GPS perangkat belum aktif')),
+      );
+      return;
+    }
+    _mapController.move(
+      LatLng(_posisiPetugas!.latitude, _posisiPetugas!.longitude),
+      16,
+    );
+  }
+
+  void _fokusKeTarget() {
+    if (_lokasiTersimpan.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Belum ada lokasi target kunjungan')),
+      );
+      return;
+    }
+    final target = _terpilih ?? _lokasiTersimpan.first;
+    setState(() => _terpilih = target);
+    _mapController.move(
+      LatLng(
+        (target['latitude'] as num).toDouble(),
+        (target['longitude'] as num).toDouble(),
+      ),
+      16,
+    );
   }
 
   Future<void> _muatLokasi() async {
@@ -55,6 +142,10 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
       _lokasiTersimpan = valid;
       _posisiPetugas = pos;
       _loading = false;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _sesuaikanKameraSemuaPin();
     });
   }
 
@@ -95,14 +186,11 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
 
   @override
   Widget build(BuildContext context) {
-    final LatLng pusatPeta = _posisiPetugas != null
-        ? LatLng(_posisiPetugas!.latitude, _posisiPetugas!.longitude)
-        : (_lokasiTersimpan.isNotEmpty
-        ? LatLng(
-      (_lokasiTersimpan.first['latitude'] as num).toDouble(),
-      (_lokasiTersimpan.first['longitude'] as num).toDouble(),
-    )
-        : const LatLng(-6.175392, 106.827153));
+    final titik = _kumpulkanSemuaTitik();
+    final bool pakaiBounds = _memilikiBanyakTitikTerpisah(titik);
+    final LatLng pusatDefault = titik.isNotEmpty
+        ? titik.first
+        : const LatLng(-7.966620, 112.632632);
 
     return Scaffold(
       appBar: AppBar(
@@ -110,6 +198,11 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
         backgroundColor: const Color(0xFF1765D1),
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            tooltip: 'Tampilkan semua pin',
+            icon: const Icon(Icons.zoom_out_map),
+            onPressed: _sesuaikanKameraSemuaPin,
+          ),
           IconButton(
             tooltip: 'Muat ulang',
             icon: const Icon(Icons.refresh),
@@ -123,9 +216,17 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
           : Stack(
         children: [
           FlutterMap(
+            mapController: _mapController,
             options: MapOptions(
-              initialCenter: pusatPeta,
-              initialZoom: 13,
+              initialCenter: pusatDefault,
+              initialZoom: 14,
+              initialCameraFit: pakaiBounds
+                  ? CameraFit.bounds(
+                bounds: LatLngBounds.fromPoints(titik),
+                padding: const EdgeInsets.fromLTRB(56, 120, 56, 120),
+                maxZoom: 16,
+              )
+                  : null,
               onTap: (_, __) => setState(() => _terpilih = null),
             ),
             children: [
@@ -142,13 +243,30 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
                         _posisiPetugas!.latitude,
                         _posisiPetugas!.longitude,
                       ),
-                      width: 48,
-                      height: 48,
+                      width: 36,
+                      height: 36,
+                      alignment: Alignment.center,
                       rotate: true,
-                      child: const Icon(
-                        Icons.person_pin_circle,
-                        size: 44,
-                        color: Colors.green,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade600,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 3,
+                          ),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.person,
+                          size: 20,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ..._lokasiTersimpan.map((row) {
@@ -160,12 +278,13 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
                       point: LatLng(lat, lng),
                       width: 48,
                       height: 48,
+                      alignment: Alignment.topCenter,
                       rotate: true,
                       child: GestureDetector(
                         onTap: () => setState(() => _terpilih = row),
                         child: Icon(
                           Icons.location_on,
-                          size: 42,
+                          size: 46,
                           color: isSelected
                               ? Colors.orange
                               : const Color(0xFF1765D1),
@@ -219,7 +338,7 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
                       _lokasiTersimpan.isEmpty
                           ? 'Belum ada lokasi kunjungan tersimpan.'
                           : '${_lokasiTersimpan.length} lokasi pelanggan tersimpan. '
-                          '${_posisiPetugas != null ? 'Pin hijau: posisi petugas.' : ''} Ketuk marker biru untuk detail & jarak.',
+                          '${_posisiPetugas != null ? 'Titik hijau: posisi Anda.' : ''} Ketuk pin biru untuk detail & jarak.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(fontSize: 12),
                     ),
@@ -228,6 +347,32 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
               ],
             ),
           ),
+          if (_terpilih == null)
+            Positioned(
+              bottom: 24,
+              right: 16,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (_lokasiTersimpan.isNotEmpty)
+                    FloatingActionButton.small(
+                      heroTag: 'btn_target',
+                      tooltip: 'Fokus ke Target Kunjungan',
+                      onPressed: _fokusKeTarget,
+                      child: const Icon(Icons.pin_drop),
+                    ),
+                  if (_posisiPetugas != null) ...[
+                    const SizedBox(height: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'btn_saya',
+                      tooltip: 'Fokus ke Posisi Saya',
+                      onPressed: _fokusKePosisiSaya,
+                      child: const Icon(Icons.my_location),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           if (_terpilih != null)
             Positioned(
               bottom: 24,
