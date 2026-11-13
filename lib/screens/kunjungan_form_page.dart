@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:latlong2/latlong.dart';
 import '../services/gps_service.dart';
 import '../services/kunjungan_service.dart';
+import '../widgets/app_navbar.dart';
+import 'location_picker_page.dart';
 
 class KunjunganFormPage extends StatefulWidget {
   final Map<String, Object?>? kunjunganEdit;
@@ -78,6 +82,25 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
     }
   }
 
+  Future<void> _pilihDiPeta() async {
+    final hasil = await Navigator.push<LatLng>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPickerPage(
+          initialLat: _latitude,
+          initialLng: _longitude,
+        ),
+      ),
+    );
+    if (hasil != null && mounted) {
+      setState(() {
+        _latitude = hasil.latitude;
+        _longitude = hasil.longitude;
+        _akurasi = null;
+      });
+    }
+  }
+
   Future<void> _simpan() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -137,6 +160,7 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
         backgroundColor: const Color(0xFF1765D1),
         foregroundColor: Colors.white,
       ),
+      bottomNavigationBar: const AppNavbar(currentIndex: 1),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -149,7 +173,7 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
             const SizedBox(height: 4),
             const Text(
               'Lengkapi data dan lokasi kunjungan.',
-              style: TextStyle(color: Colors.black54),
+              style: TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -180,7 +204,8 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
             TextFormField(
               controller: _telepon,
               maxLength: 20,
-              keyboardType: TextInputType.phone,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
                 labelText: 'Nomor Telepon',
                 prefixIcon: Icon(Icons.phone_outlined),
@@ -219,7 +244,7 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFFF3F6FC),
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.black12),
               ),
@@ -244,19 +269,35 @@ class _KunjunganFormPageState extends State<KunjunganFormPage> {
                     (_latitude != null && _longitude != null)
                         ? 'Latitude: ${_latitude!.toStringAsFixed(6)}\n'
                         'Longitude: ${_longitude!.toStringAsFixed(6)}'
-                        '${_akurasi != null ? '\nAkurasi: ${_akurasi!.toStringAsFixed(1)} meter' : ''}'
-                        : 'Lokasi belum diambil. Tekan tombol untuk merekam koordinat.',
-                    style: const TextStyle(color: Colors.black87, fontSize: 13),
+                        '${_akurasi != null ? '\nAkurasi: ${_akurasi!.toStringAsFixed(1)} meter' : '\nSumber: Dipilih manual di peta'}'
+                        : 'Lokasi belum diambil. Gunakan GPS otomatis atau pilih di peta.',
+                    style: const TextStyle(fontSize: 13),
                   ),
                   const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: _mengambilGps ? null : _ambilGps,
-                    icon: const Icon(Icons.gps_fixed),
-                    label: Text(
-                      _mengambilGps
-                          ? 'MENGAMBIL LOKASI...'
-                          : 'AMBIL LOKASI GPS',
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _mengambilGps ? null : _ambilGps,
+                          icon: const Icon(Icons.gps_fixed, size: 18),
+                          label: Text(
+                            _mengambilGps ? 'MENCARI...' : 'GPS SAAT INI',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _pilihDiPeta,
+                          icon: const Icon(Icons.map_outlined, size: 18),
+                          label: const Text(
+                            'PILIH DI PETA',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

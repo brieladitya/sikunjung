@@ -1,5 +1,11 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:sensors_plus/sensors_plus.dart';
+import '../models/kunjungan.dart';
 import '../services/kunjungan_service.dart';
+import '../widgets/app_navbar.dart';
+import 'kunjungan_detail_page.dart';
 import 'kunjungan_form_page.dart';
 
 class KunjunganListPage extends StatefulWidget {
@@ -10,13 +16,46 @@ class KunjunganListPage extends StatefulWidget {
 }
 
 class _KunjunganListPageState extends State<KunjunganListPage> {
-  // DIPERBAIKI: Generics List<Map<String, Object?>> lengkap
-  late Future<List<Map<String, Object?>>> _futureKunjungan;
+  late Future<List> _futureKunjungan;
+  String _kataKunci = '';
+  StreamSubscription<UserAccelerometerEvent>? _shakeSub;
+  DateTime _lastShake = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
     super.initState();
     _muatUlang();
+    _mulaiShakeDetector();
+  }
+
+  void _mulaiShakeDetector() {
+    _shakeSub = userAccelerometerEventStream().listen(
+          (event) {
+        final percepatan = sqrt(
+          event.x * event.x + event.y * event.y + event.z * event.z,
+        );
+        final sekarang = DateTime.now();
+        if (percepatan > 15.0 &&
+            sekarang.difference(_lastShake).inMilliseconds > 1500) {
+          _lastShake = sekarang;
+          if (!mounted) return;
+          _muatUlang();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Perangkat digoyang: Daftar kunjungan diperbarui'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+      },
+      onError: (_) {},
+    );
+  }
+
+  @override
+  void dispose() {
+    _shakeSub?.cancel();
+    super.dispose();
   }
 
   void _muatUlang() {
@@ -87,9 +126,7 @@ class _KunjunganListPageState extends State<KunjunganListPage> {
         builder: (_) => KunjunganFormPage(kunjunganEdit: edit),
       ),
     );
-    if (berubah == true) {
-      _muatUlang();
-    }
+    if (berubah == true) _muatUlang();
   }
 
   @override
@@ -101,173 +138,210 @@ class _KunjunganListPageState extends State<KunjunganListPage> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            tooltip: 'Muat ulang',
+            tooltip: 'Muat ulang (atau goyang HP)',
             icon: const Icon(Icons.refresh),
             onPressed: _muatUlang,
           ),
         ],
       ),
+      bottomNavigationBar: const AppNavbar(currentIndex: 1),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _bukaForm(),
         icon: const Icon(Icons.add),
         label: const Text('Tambah'),
       ),
-      // DIPERBAIKI: Generics FutureBuilder lengkap
-      body: FutureBuilder<List<Map<String, Object?>>>(
-        future: _futureKunjungan,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Terjadi kesalahan: ${snapshot.error}'));
-          }
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Cari nama pelanggan atau alamat...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (val) =>
+                  setState(() => _kataKunci = val.toLowerCase()),
+            ),
+          ),
+          Expanded(
+            child: FutureBuilder<List>(
+            future: _futureKunjungan,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Terjadi kesalahan: ${snapshot.error}'),
+                );
+              }
 
-          final rows = snapshot.data ?? [];
-          if (rows.isEmpty) {
-            return const Center(child: Text('Belum ada kunjungan'));
-          }
+              final semua = snapshot.data ?? [];
+              final rows = semua.where((r) {
+                if (_kataKunci.isEmpty) return true;
+                final k = Kunjungan.fromMap(r);
+                return k.namaPelanggan.toLowerCase().contains(_kataKunci) ||
+                    k.alamat.toLowerCase().contains(_kataKunci);
+              }).toList();
 
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 84),
-            itemCount: rows.length,
-            itemBuilder: (context, index) {
-              final row = rows[index];
-              final id = row['id'] as int;
-              final nama = row['nama_pelanggan'] as String;
-              final alamat = row['alamat'] as String;
-              final status = (row['status'] as String?) ?? 'Pending';
-              final catatan = (row['catatan'] as String?) ?? '';
-              final lat = (row['latitude'] as num?)?.toDouble();
-              final lng = (row['longitude'] as num?)?.toDouble();
-              final tanggal = _formatTanggal(
-                row['tanggal_kunjungan'] as String?,
-              );
-              final warna = _warnaStatus(status);
+              if (rows.isEmpty) {
+                return const Center(child: Text('Belum ada kunjungan'));
+              }
 
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const CircleAvatar(
-                            radius: 16,
-                            backgroundColor: Color(0xFFE3EEFF),
-                            child: Icon(
-                              Icons.person_outline,
-                              size: 18,
-                              color: Color(0xFF1765D1),
-                            ),
+              return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 84),
+                itemCount: rows.length,
+                itemBuilder: (context, index) {
+                  final row = rows[index];
+                  final item = Kunjungan.fromMap(row);
+                  final tanggal = _formatTanggal(item.tanggalKunjungan);
+                  final warna = _warnaStatus(item.status);
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () async {
+                        final berubah = await Navigator.push<bool>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                KunjunganDetailPage(kunjunganMap: row),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              nama,
+                        );
+                        if (berubah == true) _muatUlang();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const CircleAvatar(
+                                  radius: 16,
+                                  backgroundColor: Color(0xFFE3EEFF),
+                                  child: Icon(
+                                    Icons.person_outline,
+                                    size: 18,
+                                    color: Color(0xFF1765D1),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    item.namaPelanggan,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: warna.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    item.status,
+                                    style: TextStyle(
+                                      color: warna,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.location_on_outlined,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(child: Text(item.alamat)),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Tanggal: $tanggal',
                               style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: warna.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              status,
-                              style: TextStyle(
-                                color: warna,
-                                fontWeight: FontWeight.bold,
                                 fontSize: 12,
+                                color: Colors.grey,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.location_on_outlined,
-                            size: 16,
-                            color: Colors.black54,
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(child: Text(alamat)),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Tanggal: $tanggal',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black54,
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.gps_fixed,
+                                  size: 14,
+                                  color: Color(0xFF1765D1),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  (item.latitude != null &&
+                                      item.longitude != null)
+                                      ? 'GPS: ${item.latitude!.toStringAsFixed(6)}, ${item.longitude!.toStringAsFixed(6)}'
+                                      : 'GPS: Belum direkam',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Catatan: ${item.catatan.isEmpty ? 'tidak ada' : item.catatan}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const Divider(height: 20),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: () => _bukaForm(edit: row),
+                                  icon: const Icon(
+                                    Icons.edit_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('EDIT'),
+                                ),
+                                const SizedBox(width: 8),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.red,
+                                  ),
+                                  onPressed: () => _konfirmasiHapus(
+                                    item.id!,
+                                    item.namaPelanggan,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                  ),
+                                  label: const Text('HAPUS'),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.gps_fixed,
-                            size: 14,
-                            color: Color(0xFF1765D1),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            (lat != null && lng != null)
-                                ? 'GPS: ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}'
-                                : 'GPS: Belum direkam',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Catatan: ${catatan.isEmpty ? 'tidak ada' : catatan}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      const Divider(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: () => _bukaForm(edit: row),
-                            icon: const Icon(Icons.edit_outlined, size: 18),
-                            label: const Text('EDIT'),
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.red,
-                            ),
-                            onPressed: () => _konfirmasiHapus(id, nama),
-                            icon: const Icon(Icons.delete_outline, size: 18),
-                            label: const Text('HAPUS'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               );
             },
-          );
-        },
+            ),
+          ),
+        ],
       ),
     );
   }

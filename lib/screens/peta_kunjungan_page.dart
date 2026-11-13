@@ -1,8 +1,12 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/gps_service.dart';
 import '../services/kunjungan_service.dart';
+import '../widgets/app_navbar.dart';
 
 class PetaKunjunganPage extends StatefulWidget {
   const PetaKunjunganPage({super.key});
@@ -12,8 +16,10 @@ class PetaKunjunganPage extends StatefulWidget {
 }
 
 class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
-  List<Map<String, Object?>> _lokasiTersimpan = [];
+  List _lokasiTersimpan = [];
   Map<String, Object?>? _terpilih;
+  Position? _posisiPetugas;
+  bool _isOffline = false;
   bool _loading = true;
 
   @override
@@ -28,16 +34,42 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
       _terpilih = null;
     });
 
+    final conn = await Connectivity().checkConnectivity();
+    final offline = conn.isEmpty || conn.contains(ConnectivityResult.none);
+
     final semua = await KunjunganService.instance.getAll();
     final valid = semua.where((row) {
       return row['latitude'] != null && row['longitude'] != null;
     }).toList();
 
+    Position? pos;
+    try {
+      pos = await GpsService.instance.ambilLokasi();
+    } catch (_) {
+      pos = null;
+    }
+
     if (!mounted) return;
     setState(() {
+      _isOffline = offline;
       _lokasiTersimpan = valid;
+      _posisiPetugas = pos;
       _loading = false;
     });
+  }
+
+  String _hitungJarak(double latPelanggan, double lngPelanggan) {
+    if (_posisiPetugas == null) return 'Posisi petugas belum aktif';
+    final meter = Geolocator.distanceBetween(
+      _posisiPetugas!.latitude,
+      _posisiPetugas!.longitude,
+      latPelanggan,
+      lngPelanggan,
+    );
+    if (meter >= 1000) {
+      return '${(meter / 1000).toStringAsFixed(2)} km dari posisi Anda';
+    }
+    return '${meter.toStringAsFixed(0)} meter dari posisi Anda';
   }
 
   Future<void> _bukaNavigasi(double lat, double lng) async {
@@ -63,12 +95,14 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
 
   @override
   Widget build(BuildContext context) {
-    final LatLng pusatPeta = _lokasiTersimpan.isNotEmpty
+    final LatLng pusatPeta = _posisiPetugas != null
+        ? LatLng(_posisiPetugas!.latitude, _posisiPetugas!.longitude)
+        : (_lokasiTersimpan.isNotEmpty
         ? LatLng(
       (_lokasiTersimpan.first['latitude'] as num).toDouble(),
       (_lokasiTersimpan.first['longitude'] as num).toDouble(),
     )
-        : const LatLng(-6.175392, 106.827153);
+        : const LatLng(-6.175392, 106.827153));
 
     return Scaffold(
       appBar: AppBar(
@@ -83,6 +117,7 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
           ),
         ],
       ),
+      bottomNavigationBar: const AppNavbar(currentIndex: 2),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Stack(
@@ -100,27 +135,45 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
                 userAgentPackageName: 'com.sikunjung.sikunjung',
               ),
               MarkerLayer(
-                markers: _lokasiTersimpan.map((row) {
-                  final lat = (row['latitude'] as num).toDouble();
-                  final lng = (row['longitude'] as num).toDouble();
-                  final isSelected = _terpilih?['id'] == row['id'];
-
-                  return Marker(
-                    point: LatLng(lat, lng),
-                    width: 48,
-                    height: 48,
-                    child: GestureDetector(
-                      onTap: () => setState(() => _terpilih = row),
-                      child: Icon(
-                        Icons.location_on,
-                        size: 42,
-                        color: isSelected
-                            ? Colors.orange
-                            : const Color(0xFF1765D1),
+                markers: [
+                  if (_posisiPetugas != null)
+                    Marker(
+                      point: LatLng(
+                        _posisiPetugas!.latitude,
+                        _posisiPetugas!.longitude,
+                      ),
+                      width: 48,
+                      height: 48,
+                      rotate: true,
+                      child: const Icon(
+                        Icons.person_pin_circle,
+                        size: 44,
+                        color: Colors.green,
                       ),
                     ),
-                  );
-                }).toList(),
+                  ..._lokasiTersimpan.map((row) {
+                    final lat = (row['latitude'] as num).toDouble();
+                    final lng = (row['longitude'] as num).toDouble();
+                    final isSelected = _terpilih?['id'] == row['id'];
+
+                    return Marker(
+                      point: LatLng(lat, lng),
+                      width: 48,
+                      height: 48,
+                      rotate: true,
+                      child: GestureDetector(
+                        onTap: () => setState(() => _terpilih = row),
+                        child: Icon(
+                          Icons.location_on,
+                          size: 42,
+                          color: isSelected
+                              ? Colors.orange
+                              : const Color(0xFF1765D1),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
               ),
               const SimpleAttributionWidget(
                 source: Text('OpenStreetMap contributors'),
@@ -131,21 +184,48 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
             top: 16,
             left: 16,
             right: 16,
-            child: Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+            child: Column(
+              children: [
+                if (_isOffline)
+                  Card(
+                    color: Colors.red.shade700,
+                    child: const Padding(
+                      padding: EdgeInsets.all(10),
+                      child: Row(
+                        children: [
+                          Icon(Icons.wifi_off, color: Colors.white),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Mode Offline: Peta online memerlukan koneksi internet untuk memuat gambar peta.',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                Card(
+                  elevation: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Text(
+                      _lokasiTersimpan.isEmpty
+                          ? 'Belum ada lokasi kunjungan tersimpan.'
+                          : '${_lokasiTersimpan.length} lokasi pelanggan tersimpan. '
+                          '${_posisiPetugas != null ? 'Pin hijau: posisi petugas.' : ''} Ketuk marker biru untuk detail & jarak.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
                 ),
-                child: Text(
-                  _lokasiTersimpan.isEmpty
-                      ? 'Belum ada lokasi kunjungan tersimpan.'
-                      : '${_lokasiTersimpan.length} lokasi kunjungan tersimpan. Ketuk marker untuk melihat informasi pelanggan.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ),
+              ],
             ),
           ),
           if (_terpilih != null)
@@ -190,11 +270,10 @@ class _PetaKunjunganPageState extends State<PetaKunjunganPage> {
                       Text(_terpilih!['alamat'] as String),
                       const SizedBox(height: 6),
                       Text(
-                        'GPS: ${(_terpilih!['latitude'] as num).toDouble().toStringAsFixed(6)}, '
-                            '${(_terpilih!['longitude'] as num).toDouble().toStringAsFixed(6)}',
+                        'Jarak: ${_hitungJarak((_terpilih!['latitude'] as num).toDouble(), (_terpilih!['longitude'] as num).toDouble())}',
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black54,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1765D1),
                         ),
                       ),
                       const SizedBox(height: 12),

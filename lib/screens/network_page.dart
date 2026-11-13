@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import '../widgets/app_navbar.dart';
 
 class NetworkPage extends StatefulWidget {
   const NetworkPage({super.key});
@@ -127,6 +128,7 @@ class _NetworkPageState extends State<NetworkPage> {
           ),
         ],
       ),
+      bottomNavigationBar: const AppNavbar(currentIndex: -1),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -258,7 +260,7 @@ class _NetworkPageState extends State<NetworkPage> {
                   const Text(
                     'Pemeriksaan menggunakan HTTPS ke www.gstatic.com/generate_204. '
                         'Hasil gagal tidak selalu berarti semua layanan internet terputus.',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),
@@ -293,7 +295,7 @@ class _NetworkPageState extends State<NetworkPage> {
                   const Text(
                     'Status diperbarui saat jenis jaringan berubah, saat halaman dibuka, '
                         'atau saat tombol refresh ditekan.',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),

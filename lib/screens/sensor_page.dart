@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import '../widgets/app_navbar.dart';
 
 class SensorPage extends StatefulWidget {
   const SensorPage({super.key});
@@ -12,13 +14,16 @@ class SensorPage extends StatefulWidget {
 class _SensorPageState extends State<SensorPage> {
   StreamSubscription<AccelerometerEvent>? _accelSub;
   StreamSubscription<GyroscopeEvent>? _gyroSub;
-  StreamSubscription<UserAccelerometerEvent>? _userAccelSub;
+  StreamSubscription<MagnetometerEvent>? _magSub;
 
   AccelerometerEvent? _accel;
   GyroscopeEvent? _gyro;
-  UserAccelerometerEvent? _userAccel;
+  MagnetometerEvent? _mag;
+
   bool _aktif = true;
-  String? _pesanError;
+  String? _errAccel;
+  String? _errGyro;
+  String? _errMag;
 
   @override
   void initState() {
@@ -30,7 +35,9 @@ class _SensorPageState extends State<SensorPage> {
     _hentikanSensor();
     setState(() {
       _aktif = true;
-      _pesanError = null;
+      _errAccel = null;
+      _errGyro = null;
+      _errMag = null;
     });
 
     _accelSub = accelerometerEventStream(
@@ -41,7 +48,7 @@ class _SensorPageState extends State<SensorPage> {
       },
       onError: (_) {
         if (mounted) {
-          setState(() => _pesanError = 'Sensor Accelerometer tidak tersedia');
+          setState(() => _errAccel = 'Sensor Accelerometer tidak tersedia');
         }
       },
     );
@@ -54,28 +61,32 @@ class _SensorPageState extends State<SensorPage> {
       },
       onError: (_) {
         if (mounted) {
-          setState(() => _pesanError = 'Sensor Gyroscope tidak tersedia');
+          setState(() => _errGyro = 'Sensor Gyroscope tidak tersedia');
         }
       },
     );
 
-    _userAccelSub = userAccelerometerEventStream(
+    _magSub = magnetometerEventStream(
       samplingPeriod: SensorInterval.uiInterval,
     ).listen(
           (event) {
-        if (mounted) setState(() => _userAccel = event);
+        if (mounted) setState(() => _mag = event);
       },
-      onError: (_) {},
+      onError: (_) {
+        if (mounted) {
+          setState(() => _errMag = 'Sensor Magnetometer tidak tersedia');
+        }
+      },
     );
   }
 
   void _hentikanSensor() {
     _accelSub?.cancel();
     _gyroSub?.cancel();
-    _userAccelSub?.cancel();
+    _magSub?.cancel();
     _accelSub = null;
     _gyroSub = null;
-    _userAccelSub = null;
+    _magSub = null;
   }
 
   @override
@@ -84,8 +95,33 @@ class _SensorPageState extends State<SensorPage> {
     super.dispose();
   }
 
+  double _derajatKompas(MagnetometerEvent m) {
+    double deg = atan2(m.y, m.x) * (180 / pi);
+    if (deg < 0) deg += 360;
+    return deg;
+  }
+
+  String _arahMataAngin(double deg) {
+    const arah = [
+      'Utara (U)',
+      'Timur Laut (TL)',
+      'Timur (T)',
+      'Tenggara (TG)',
+      'Selatan (S)',
+      'Barat Daya (BD)',
+      'Barat (B)',
+      'Barat Laut (BL)',
+    ];
+    return arah[((deg + 22.5) % 360) ~/ 45];
+  }
+
   @override
   Widget build(BuildContext context) {
+    final double? derajat = _mag != null ? _derajatKompas(_mag!) : null;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color warnaAksen =
+    isDark ? const Color(0xFF7CB2FF) : const Color(0xFF1765D1);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sensor Perangkat'),
@@ -108,6 +144,7 @@ class _SensorPageState extends State<SensorPage> {
           ),
         ],
       ),
+      bottomNavigationBar: const AppNavbar(currentIndex: -1),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -116,42 +153,74 @@ class _SensorPageState extends State<SensorPage> {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Pantau pergerakan dan rotasi perangkat Android secara real-time.',
-            style: TextStyle(color: Colors.black54),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(
-                Icons.sensors,
-                size: 18,
-                color: _aktif ? Colors.green : Colors.grey,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                _aktif
-                    ? 'Pembacaan sensor aktif'
-                    : 'Pembacaan sensor dijeda',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: _aktif ? Colors.green : Colors.grey,
-                ),
-              ),
-            ],
-          ),
-          if (_pesanError != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              _pesanError!,
-              style: const TextStyle(color: Colors.red),
+          Text(
+            'Pantau pergerakan, rotasi, dan arah kompas perangkat secara real-time.',
+            style: TextStyle(
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
             ),
-          ],
+          ),
           const SizedBox(height: 16),
+          Card(
+            color: isDark
+                ? const Color(0xFF1A2A42)
+                : const Color(0xFFECF3FD),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.explore, color: warnaAksen, size: 28),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Kompas Digital (Magnetometer)',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (_errMag != null)
+                    Text(
+                      _errMag!,
+                      style: TextStyle(
+                        color: isDark ? Colors.red.shade300 : Colors.red,
+                      ),
+                    )
+                  else ...[
+                    Text(
+                      derajat != null ? '${derajat.toStringAsFixed(1)}°' : '-',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: warnaAksen,
+                      ),
+                    ),
+                    Text(
+                      derajat != null
+                          ? _arahMataAngin(derajat)
+                          : 'Membaca sensor...',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
           _KartuSensor(
             icon: Icons.screen_rotation_alt,
             judul: 'Accelerometer',
             deskripsi: 'Percepatan perangkat termasuk gravitasi',
+            error: _errAccel,
             x: _accel?.x,
             y: _accel?.y,
             z: _accel?.z,
@@ -162,6 +231,7 @@ class _SensorPageState extends State<SensorPage> {
             icon: Icons.threesixty,
             judul: 'Gyroscope',
             deskripsi: 'Kecepatan rotasi pada sumbu X, Y, dan Z',
+            error: _errGyro,
             x: _gyro?.x,
             y: _gyro?.y,
             z: _gyro?.z,
@@ -169,13 +239,14 @@ class _SensorPageState extends State<SensorPage> {
           ),
           const SizedBox(height: 14),
           _KartuSensor(
-            icon: Icons.speed,
-            judul: 'User Accelerometer',
-            deskripsi: 'Percepatan dengan gravitasi dikurangi',
-            x: _userAccel?.x,
-            y: _userAccel?.y,
-            z: _userAccel?.z,
-            satuan: 'm/s²',
+            icon: Icons.explore_outlined,
+            judul: 'Magnetometer',
+            deskripsi: 'Kekuatan medan magnet di sekitar perangkat',
+            error: _errMag,
+            x: _mag?.x,
+            y: _mag?.y,
+            z: _mag?.z,
+            satuan: 'µT',
           ),
         ],
       ),
@@ -187,6 +258,7 @@ class _KartuSensor extends StatelessWidget {
   final IconData icon;
   final String judul;
   final String deskripsi;
+  final String? error;
   final double? x;
   final double? y;
   final double? z;
@@ -196,6 +268,7 @@ class _KartuSensor extends StatelessWidget {
     required this.icon,
     required this.judul,
     required this.deskripsi,
+    this.error,
     required this.x,
     required this.y,
     required this.z,
@@ -204,6 +277,10 @@ class _KartuSensor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color warnaAksen =
+    isDark ? const Color(0xFF7CB2FF) : const Color(0xFF1765D1);
+
     return Card(
       elevation: 1,
       child: Padding(
@@ -213,7 +290,7 @@ class _KartuSensor extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, color: const Color(0xFF1765D1)),
+                Icon(icon, color: warnaAksen),
                 const SizedBox(width: 8),
                 Text(
                   judul,
@@ -227,42 +304,63 @@ class _KartuSensor extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               deskripsi,
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+              ),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _KotakSumbu(
-                    label: 'X',
-                    nilai: x,
-                    satuan: satuan,
-                    warna: const Color(0xFFFDECEC),
-                    warnaTeks: Colors.red.shade700,
-                  ),
+            if (error != null)
+              Text(
+                error!,
+                style: TextStyle(
+                  color: isDark ? Colors.red.shade300 : Colors.red,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _KotakSumbu(
-                    label: 'Y',
-                    nilai: y,
-                    satuan: satuan,
-                    warna: const Color(0xFFECF8F0),
-                    warnaTeks: Colors.green.shade700,
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: _KotakSumbu(
+                      label: 'X',
+                      nilai: x,
+                      satuan: satuan,
+                      warna: isDark
+                          ? const Color(0xFF3B1E22)
+                          : const Color(0xFFFDECEC),
+                      warnaTeks: isDark
+                          ? Colors.red.shade300
+                          : Colors.red.shade700,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _KotakSumbu(
-                    label: 'Z',
-                    nilai: z,
-                    satuan: satuan,
-                    warna: const Color(0xFFECF3FD),
-                    warnaTeks: const Color(0xFF1765D1),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _KotakSumbu(
+                      label: 'Y',
+                      nilai: y,
+                      satuan: satuan,
+                      warna: isDark
+                          ? const Color(0xFF1B3626)
+                          : const Color(0xFFECF8F0),
+                      warnaTeks: isDark
+                          ? Colors.green.shade300
+                          : Colors.green.shade700,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _KotakSumbu(
+                      label: 'Z',
+                      nilai: z,
+                      satuan: satuan,
+                      warna: isDark
+                          ? const Color(0xFF1A2A42)
+                          : const Color(0xFFECF3FD),
+                      warnaTeks: warnaAksen,
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
       ),
@@ -287,6 +385,8 @@ class _KotakSumbu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
@@ -297,23 +397,24 @@ class _KotakSumbu extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: warnaTeks,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, color: warnaTeks),
           ),
           const SizedBox(height: 4),
           Text(
             nilai?.toStringAsFixed(2) ?? '-',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : Colors.black87,
             ),
           ),
           const SizedBox(height: 2),
           Text(
             satuan,
-            style: const TextStyle(fontSize: 11, color: Colors.black54),
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? Colors.white70 : Colors.black54,
+            ),
           ),
         ],
       ),

@@ -2,34 +2,105 @@ import 'package:flutter/material.dart';
 import 'core/database/database_helper.dart';
 import 'screens/dashboard_page.dart';
 import 'services/auth_service.dart';
+import 'services/prefs_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseHelper.instance.database;
   await AuthService.instance.createDemoAccount();
-  final userAktif = await AuthService.instance.currentUser();
-  runApp(SiKunjungApp(userAktif: userAktif));
+  await PrefsService.instance.init();
+  runApp(const SiKunjungApp());
 }
 
 class SiKunjungApp extends StatelessWidget {
-  final Map<String, Object?>? userAktif;
-
-  const SiKunjungApp({super.key, this.userAktif});
+  const SiKunjungApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'SiKunjung',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1765D1),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: PrefsService.instance.themeNotifier,
+      builder: (context, modeTema, _) {
+        return MaterialApp(
+          title: 'SiKunjung',
+          debugShowCheckedModeBanner: false,
+          themeMode: modeTema,
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF1765D1),
+              brightness: Brightness.light,
+            ),
+          ),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF1765D1),
+              brightness: Brightness.dark,
+            ),
+          ),
+          home: const SplashScreen(),
+        );
+      },
+    );
+  }
+}
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _cekSesi();
+  }
+
+  Future<void> _cekSesi() async {
+    await Future.delayed(const Duration(seconds: 2));
+    final userAktif = await AuthService.instance.currentUser();
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => userAktif != null
+            ? DashboardPage(namaPetugas: userAktif['nama'] as String)
+            : const LoginPage(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFF1765D1),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.location_on_rounded, size: 88, color: Colors.white),
+            SizedBox(height: 16),
+            Text(
+              'SiKunjung',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Sistem Informasi Kunjungan Lapangan',
+              style: TextStyle(color: Colors.white70),
+            ),
+            SizedBox(height: 28),
+            CircularProgressIndicator(color: Colors.white),
+          ],
         ),
       ),
-      home: userAktif != null
-          ? DashboardPage(namaPetugas: userAktif!['nama'] as String)
-          : const LoginPage(),
     );
   }
 }
@@ -47,6 +118,19 @@ class _LoginPageState extends State<LoginPage> {
   final _password = TextEditingController();
   bool _hidePassword = true;
   bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _muatUsernameTerakhir();
+  }
+
+  Future<void> _muatUsernameTerakhir() async {
+    final last = await PrefsService.instance.ambilUsernameTerakhir();
+    if (last.isNotEmpty && mounted) {
+      setState(() => _username.text = last);
+    }
+  }
 
   @override
   void dispose() {
@@ -72,6 +156,9 @@ class _LoginPageState extends State<LoginPage> {
       );
       return;
     }
+
+    await PrefsService.instance.simpanUsernameTerakhir(_username.text);
+    if (!mounted) return;
 
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
@@ -125,7 +212,7 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 4),
                     const Text(
                       'Masuk menggunakan akun petugas Anda',
-                      style: TextStyle(color: Colors.black54),
+                      style: TextStyle(color: Colors.grey),
                     ),
                     const SizedBox(height: 20),
                     TextFormField(
@@ -173,7 +260,7 @@ class _LoginPageState extends State<LoginPage> {
                     const Text(
                       'SiKunjung - Versi 1.0.0',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: Colors.black45),
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ],
                 ),
